@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Annotated
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+load_dotenv()  # Load .env file if present (local dev)
 
 from agents import analyze_with_claude, analyze_with_gemini, synthesize_results
 from keychain_service import (
@@ -41,9 +45,18 @@ app = FastAPI(
 
 # ── CORS ────────────────────────────────────────────────────────────────────
 
+_cors_origins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+]
+# Add production frontend URL if set
+_frontend_url = os.environ.get("FRONTEND_URL")
+if _frontend_url:
+    _cors_origins.append(_frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

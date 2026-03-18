@@ -1,9 +1,12 @@
-"""macOS Keychain credential storage for GutSense API keys and source logins."""
+"""Credential storage for GutSense API keys and source logins.
+
+Uses macOS Keychain locally, falls back to environment variables in production.
+"""
 
 from __future__ import annotations
 
 import json
-import keyring
+import os
 
 SERVICE_NAME = "com.gutsense.web"
 SOURCES_SERVICE = "com.gutsense.sources"
@@ -12,6 +15,25 @@ SOURCES_SERVICE = "com.gutsense.sources"
 ANTHROPIC_KEY = "anthropic_api_key"
 GOOGLE_KEY = "google_api_key"
 API_SECRET = "api_secret"
+
+# Env-var mapping for cloud deployment (Railway, Docker, etc.)
+_ENV_MAP: dict[str, str] = {
+    ANTHROPIC_KEY: "ANTHROPIC_API_KEY",
+    GOOGLE_KEY: "GOOGLE_API_KEY",
+    API_SECRET: "API_SECRET",
+}
+
+# Detect whether keyring is available (not present in Docker/Railway)
+_keyring_available = False
+try:
+    import keyring  # type: ignore
+
+    # Quick probe – if the backend is a null/fail backend, skip it
+    _backend = keyring.get_keyring()
+    if "fail" not in type(_backend).__name__.lower() and "null" not in type(_backend).__name__.lower():
+        _keyring_available = True
+except Exception:
+    pass
 
 # Known research source sites
 SOURCE_SITES: dict[str, dict] = {
@@ -34,25 +56,38 @@ SOURCE_SITES: dict[str, dict] = {
 
 
 def store_credential(key: str, value: str) -> None:
-    """Store a credential in macOS Keychain."""
-    keyring.set_password(SERVICE_NAME, key, value)
+    """Store a credential. Uses Keychain locally, no-op in cloud (use env vars)."""
+    if _keyring_available:
+        keyring.set_password(SERVICE_NAME, key, value)
+    else:
+        # In cloud mode, credentials are set via environment variables
+        os.environ[_ENV_MAP.get(key, key.upper())] = value
 
 
 def read_credential(key: str) -> str | None:
-    """Read a credential from macOS Keychain. Returns None if not found."""
-    return keyring.get_password(SERVICE_NAME, key)
+    """Read a credential. Checks Keychain first, then falls back to env vars."""
+    # Try env var first (always available, takes priority in cloud)
+    env_key = _ENV_MAP.get(key, key.upper())
+    env_val = os.environ.get(env_key)
+    if env_val:
+        return env_val
+    # Fall back to Keychain
+    if _keyring_available:
+        return keyring.get_password(SERVICE_NAME, key)
+    return None
 
 
 def delete_credential(key: str) -> None:
-    """Delete a credential from macOS Keychain."""
-    try:
-        keyring.delete_password(SERVICE_NAME, key)
-    except keyring.errors.PasswordDeleteError:
-        pass  # Key didn't exist
+    """Delete a credential from Keychain."""
+    if _keyring_available:
+        try:
+            keyring.delete_password(SERVICE_NAME, key)
+        except keyring.errors.PasswordDeleteError:
+            pass
 
 
 def has_credential(key: str) -> bool:
-    """Check if a credential exists in Keychain."""
+    """Check if a credential exists."""
     return read_credential(key) is not None
 
 
@@ -69,14 +104,17 @@ def get_credentials_status() -> dict[str, bool]:
 
 
 def store_source_credential(source_id: str, username: str, password: str) -> None:
-    """Store a source site login in macOS Keychain as JSON."""
+    """Store a source site login as JSON."""
     payload = json.dumps({"username": username, "password": password})
-    keyring.set_password(SOURCES_SERVICE, source_id, payload)
+    if _keyring_available:
+        keyring.set_password(SOURCES_SERVICE, source_id, payload)
 
 
 def read_source_credential(source_id: str) -> dict | None:
-    """Read a source site login from Keychain. Returns {username, password} or None."""
-    raw = keyring.get_password(SOURCES_SERVICE, source_id)
+    """Read a source site login. Returns {username, password} or None."""
+    raw = None
+    if _keyring_available:
+        raw = keyring.get_password(SOURCES_SERVICE, source_id)
     if not raw:
         return None
     try:
@@ -86,15 +124,16 @@ def read_source_credential(source_id: str) -> dict | None:
 
 
 def delete_source_credential(source_id: str) -> None:
-    """Delete a source site login from Keychain."""
-    try:
-        keyring.delete_password(SOURCES_SERVICE, source_id)
-    except keyring.errors.PasswordDeleteError:
-        pass
+    """Delete a source site login."""
+    if _keyring_available:
+        try:
+            keyring.delete_password(SOURCES_SERVICE, source_id)
+        except keyring.errors.PasswordDeleteError:
+            pass
 
 
 def has_source_credential(source_id: str) -> bool:
-    """Check if a source site login exists in Keychain."""
+    """Check if a source site login exists."""
     return read_source_credential(source_id) is not None
 
 

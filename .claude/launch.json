@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gutsense-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "-p", "3099"],
+      "port": 3099,
+      "cwd": "/Users/zp/Documents/GitHub/GutSense-Web/frontend"
+    }
+  ]
+}

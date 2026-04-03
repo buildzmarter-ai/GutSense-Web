@@ -1,4 +1,4 @@
-"""Claude + Gemini FODMAP analysis agents and synthesis logic."""
+"""Claude + Gemini + OpenAI FODMAP analysis agents and synthesis logic."""
 
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ import time
 from typing import Any
 
 import anthropic
-import google.generativeai as genai
+from google import genai
+import openai
 
 from models import (
     AgentResultDTO,
@@ -39,7 +40,7 @@ Given a food or meal description (and optionally an image), perform ALL of the f
 
 RESPOND WITH ONLY valid JSON matching this exact schema (no markdown, no extra keys):
 {
-  "agent_type": "<claude or gemini>",
+  "agent_type": "<claude or openai or gemini>",
   "fodmap_tiers": [
     {
       "ingredient": "string",
@@ -78,7 +79,7 @@ RESPOND WITH ONLY valid JSON matching this exact schema (no markdown, no extra k
 _SYNTHESIS_SYSTEM_PROMPT = """\
 You are GutSense Synthesis, an expert at reconciling two independent FODMAP analyses.
 
-You will receive the JSON results from two AI agents (Claude and Gemini) that each analyzed the same food/meal.
+You will receive the JSON results from two AI agents that each analyzed the same food/meal.
 Your job:
 1. Reconcile disagreements on ingredient FODMAP tiers -- choose the most evidence-backed tier for each ingredient.
 2. Calculate a final IBS trigger probability (weighted average, favoring the higher-confidence agent).
@@ -212,6 +213,55 @@ async def analyze_with_claude(
     return AgentResultDTO.model_validate(data)
 
 
+# ── OpenAI Agent ───────────────────────────────────────────────────────────
+
+
+async def analyze_with_openai(
+    req: AnalysisRequest,
+    api_key: str,
+) -> AgentResultDTO:
+    """Run FODMAP analysis using OpenAI."""
+    client = openai.AsyncOpenAI(api_key=api_key)
+
+    user_context = _build_user_context(req)
+    user_message_text = (
+        f"Analyze this food/meal for FODMAP content:\n\n"
+        f"\"{req.query}\"\n\n"
+        f"--- USER PROFILE ---\n{user_context}"
+    )
+
+    # Build message content
+    content: list[dict[str, Any]] = []
+    if req.image_base64 and req.image_media_type:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{req.image_media_type};base64,{req.image_base64}",
+                },
+            }
+        )
+    content.append({"type": "text", "text": user_message_text})
+
+    start = time.perf_counter_ns()
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        max_tokens=4096,
+        messages=[
+            {"role": "system", "content": _ANALYSIS_SYSTEM_PROMPT},
+            {"role": "user", "content": content},
+        ],
+    )
+    latency_ms = int((time.perf_counter_ns() - start) / 1_000_000)
+
+    raw_text = response.choices[0].message.content or ""
+    data = _safe_parse_json(raw_text)
+    data["agent_type"] = "openai"
+    data["processing_latency_ms"] = latency_ms
+
+    return AgentResultDTO.model_validate(data)
+
+
 # ── Gemini Agent ────────────────────────────────────────────────────────────
 
 
@@ -225,8 +275,7 @@ async def analyze_with_gemini(
     If `req.apple_result_json` is provided, this operates in synthesis mode
     (reconciling an Apple Intelligence result with Gemini's own analysis).
     """
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.5-pro")
+    client = genai.Client(api_key=api_key)
 
     user_context = _build_user_context(req)
 
@@ -240,8 +289,9 @@ async def analyze_with_gemini(
             f"Reconcile these results following the synthesis schema."
         )
         start = time.perf_counter_ns()
-        response = await model.generate_content_async(
-            [_SYNTHESIS_SYSTEM_PROMPT + "\n\n" + synthesis_prompt]
+        response = await client.aio.models.generate_content(
+            model="gemini-2.5-pro",
+            contents=[_SYNTHESIS_SYSTEM_PROMPT + "\n\n" + synthesis_prompt],
         )
         latency_ms = int((time.perf_counter_ns() - start) / 1_000_000)
         data = _safe_parse_json(response.text)
@@ -258,14 +308,17 @@ async def analyze_with_gemini(
     if req.image_base64 and req.image_media_type:
         image_bytes = base64.b64decode(req.image_base64)
         parts.append(
-            {"mime_type": req.image_media_type, "data": image_bytes}
+            genai.types.Part.from_bytes(data=image_bytes, mime_type=req.image_media_type)
         )
     parts.append(
         _ANALYSIS_SYSTEM_PROMPT + "\n\n" + user_message_text
     )
 
     start = time.perf_counter_ns()
-    response = await model.generate_content_async(parts)
+    response = await client.aio.models.generate_content(
+        model="gemini-2.5-pro",
+        contents=parts,
+    )
     latency_ms = int((time.perf_counter_ns() - start) / 1_000_000)
 
     data = _safe_parse_json(response.text)
@@ -275,21 +328,21 @@ async def analyze_with_gemini(
     return AgentResultDTO.model_validate(data)
 
 
-# ── Synthesis (Web) ─────────────────────────────────────────────────────────
+# ── Synthesis (Web — uses OpenAI as synthesizer) ──────────────────────────
 
 
 async def synthesize_results(
-    claude_result: AgentResultDTO,
+    primary_result: AgentResultDTO,
     gemini_result: AgentResultDTO,
     api_key: str,
     user_correction: str | None = None,
+    synthesizer: str = "openai",
 ) -> SynthesisResultDTO:
-    """Reconcile Claude + Gemini results using Claude as the synthesizer."""
-    client = anthropic.AsyncAnthropic(api_key=api_key)
+    """Reconcile primary + Gemini results using OpenAI (or Claude) as synthesizer."""
 
     prompt = (
-        f"Claude agent result:\n"
-        f"{claude_result.model_dump_json(indent=2)}\n\n"
+        f"Primary agent result:\n"
+        f"{primary_result.model_dump_json(indent=2)}\n\n"
         f"Gemini agent result:\n"
         f"{gemini_result.model_dump_json(indent=2)}\n\n"
     )
@@ -306,6 +359,36 @@ async def synthesize_results(
     else:
         prompt += "Reconcile these two analyses."
 
+    if synthesizer == "openai":
+        return await _synthesize_with_openai(prompt, api_key)
+    else:
+        return await _synthesize_with_claude(prompt, api_key)
+
+
+async def _synthesize_with_openai(prompt: str, api_key: str) -> SynthesisResultDTO:
+    """Use OpenAI as the synthesis engine."""
+    client = openai.AsyncOpenAI(api_key=api_key)
+
+    start = time.perf_counter_ns()
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        max_tokens=4096,
+        messages=[
+            {"role": "system", "content": _SYNTHESIS_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+    )
+    latency_ms = int((time.perf_counter_ns() - start) / 1_000_000)
+
+    raw_text = response.choices[0].message.content or ""
+    data = _safe_parse_json(raw_text)
+    return SynthesisResultDTO.model_validate(data)
+
+
+async def _synthesize_with_claude(prompt: str, api_key: str) -> SynthesisResultDTO:
+    """Use Claude as the synthesis engine (fallback)."""
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+
     start = time.perf_counter_ns()
     response = await client.messages.create(
         model="claude-sonnet-4-20250514",
@@ -318,3 +401,47 @@ async def synthesize_results(
     raw_text = response.content[0].text  # type: ignore[union-attr]
     data = _safe_parse_json(raw_text)
     return SynthesisResultDTO.model_validate(data)
+
+
+# ── Credential Validation ──────────────────────────────────────────────────
+
+
+async def validate_anthropic_key(api_key: str) -> tuple[bool, str]:
+    """Validate an Anthropic API key by making a minimal request."""
+    try:
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        await client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=10,
+            messages=[{"role": "user", "content": "ping"}],
+        )
+        return True, "Anthropic key is valid"
+    except Exception as exc:
+        return False, str(exc)
+
+
+async def validate_google_key(api_key: str) -> tuple[bool, str]:
+    """Validate a Google API key by making a minimal request."""
+    try:
+        client = genai.Client(api_key=api_key)
+        await client.aio.models.generate_content(
+            model="gemini-2.5-pro",
+            contents="ping",
+        )
+        return True, "Google key is valid"
+    except Exception as exc:
+        return False, str(exc)
+
+
+async def validate_openai_key(api_key: str) -> tuple[bool, str]:
+    """Validate an OpenAI API key by making a minimal request."""
+    try:
+        client = openai.AsyncOpenAI(api_key=api_key)
+        await client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=10,
+            messages=[{"role": "user", "content": "ping"}],
+        )
+        return True, "OpenAI key is valid"
+    except Exception as exc:
+        return False, str(exc)

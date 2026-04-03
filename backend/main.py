@@ -55,21 +55,34 @@ app = FastAPI(
 
 # ── CORS ────────────────────────────────────────────────────────────────────
 
-_cors_origins = [
-    "http://localhost:3000",
-    "http://localhost:3001",
-]
-# Add production frontend URL if set
-_frontend_url = os.environ.get("FRONTEND_URL")
-if _frontend_url:
-    _cors_origins.append(_frontend_url)
+_cors_origins: list[str] = []
+
+# In production, only allow explicitly configured origins.
+# FRONTEND_URL accepts a comma-separated list for multi-domain support
+# e.g. "https://gutsense.industriallystrong.com,https://gutsense.pages.dev"
+_frontend_urls = os.environ.get("FRONTEND_URL", "")
+for url in _frontend_urls.split(","):
+    url = url.strip().rstrip("/")
+    if url:
+        _cors_origins.append(url)
+
+# Localhost origins for local development only
+if os.environ.get("ENVIRONMENT", "production").lower() in ("development", "dev", "local"):
+    _cors_origins.extend(["http://localhost:3000", "http://localhost:3001"])
+
+# Fallback: if nothing configured, allow localhost (safe default for first-time dev)
+if not _cors_origins:
+    logger.warning("No CORS origins configured – defaulting to localhost:3000")
+    _cors_origins = ["http://localhost:3000", "http://localhost:3001"]
+
+logger.info("CORS allowed origins: %s", _cors_origins)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # ── Auth helper ─────────────────────────────────────────────────────────────

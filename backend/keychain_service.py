@@ -14,12 +14,14 @@ SOURCES_SERVICE = "com.gutsense.sources"
 # Key names stored in Keychain
 ANTHROPIC_KEY = "anthropic_api_key"
 GOOGLE_KEY = "google_api_key"
+OPENAI_KEY = "openai_api_key"
 API_SECRET = "api_secret"
 
 # Env-var mapping for cloud deployment (Railway, Docker, etc.)
 _ENV_MAP: dict[str, str] = {
     ANTHROPIC_KEY: "ANTHROPIC_API_KEY",
     GOOGLE_KEY: "GOOGLE_API_KEY",
+    OPENAI_KEY: "OPENAI_API_KEY",
     API_SECRET: "API_SECRET",
 }
 
@@ -96,6 +98,7 @@ def get_credentials_status() -> dict[str, bool]:
     return {
         "anthropic_api_key": has_credential(ANTHROPIC_KEY),
         "google_api_key": has_credential(GOOGLE_KEY),
+        "openai_api_key": has_credential(OPENAI_KEY),
         "api_secret": has_credential(API_SECRET),
     }
 

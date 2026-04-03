@@ -26,7 +26,7 @@ export default function ExampleQueries({ onSelect }: ExampleQueriesProps) {
           <button
             key={q}
             onClick={() => onSelect(q)}
-            className="flex items-center justify-between text-left px-4 py-3 bg-gray-50 dark:bg-gray-800 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-[#2D83A8]/5 hover:text-[#2D83A8] dark:hover:bg-[#2D83A8]/10 transition-colors cursor-pointer"
+            className="flex items-center justify-between text-left px-4 py-3 bg-gray-50 dark:bg-gray-800 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-[var(--color-gut-accent)]/5 hover:text-[var(--color-gut-accent)] dark:hover:bg-[var(--color-gut-accent)]/10 transition-colors cursor-pointer"
           >
             <span className="mr-2">{q}</span>
             <ChevronRight size={16} className="shrink-0 text-gray-400" />

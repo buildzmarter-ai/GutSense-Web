@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback } from "react";
-import { Type, Camera, Loader2 } from "lucide-react";
+import { Type, Camera, Loader2, FlaskConical } from "lucide-react";
 import { useAnalysisStore, useHistoryStore, useSettingsStore, useSourcesStore } from "@/lib/store";
-import { analyzeClaude, analyzeGemini, synthesize } from "@/lib/api";
+import { analyzeClaude, analyzeOpenAI, analyzeGemini, synthesize } from "@/lib/api";
 import { AnalysisRequest, HistoryEntry, UserSourceDTO } from "@/lib/types";
 import ServingSelector from "./ServingSelector";
 import ExampleQueries from "./ExampleQueries";
@@ -25,7 +25,7 @@ function createThumbnail(dataUrl: string): Promise<string> {
       ctx.drawImage(img, 0, 0, w, h);
       resolve(canvas.toDataURL("image/jpeg", 0.6));
     };
-    img.onerror = () => resolve(dataUrl); // fallback to original
+    img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
   });
 }
@@ -33,6 +33,7 @@ function createThumbnail(dataUrl: string): Promise<string> {
 export default function AnalyzeTab() {
   const analysis = useAnalysisStore();
   const profile = useSettingsStore((s) => s.profile);
+  const primaryProvider = useSettingsStore((s) => s.primaryProvider);
   const sources = useSourcesStore((s) => s.sources);
   const addHistory = useHistoryStore((s) => s.addEntry);
 
@@ -68,7 +69,6 @@ export default function AnalyzeTab() {
   const runAnalysis = useCallback(async () => {
     analysis.startAnalysis();
 
-    // Convert UserSource[] to UserSourceDTO[] for the backend
     const userSourceDTOs: UserSourceDTO[] | undefined =
       sources.length > 0
         ? sources.map((s) => ({
@@ -94,23 +94,26 @@ export default function AnalyzeTab() {
     };
 
     const historyId = crypto.randomUUID();
-    const historyQuery = request.query; // Use the actual query sent to APIs (includes photo fallback)
-    // Generate a small thumbnail for localStorage (avoids bloating storage with full-res images)
+    const historyQuery = request.query;
     const historyThumbnail = analysis.imagePreviewUrl
       ? await createThumbnail(analysis.imagePreviewUrl)
       : undefined;
-    let claudeRes = null;
+    let primaryRes = null;
     let geminiRes = null;
 
+    // Select primary analyzer based on provider setting
+    const analyzePrimary =
+      primaryProvider === "openai" ? analyzeOpenAI : analyzeClaude;
+
     // Fire both in parallel
-    const claudePromise = analyzeClaude(request)
+    const primaryPromise = analyzePrimary(request)
       .then((r) => {
-        claudeRes = r;
-        analysis.setClaudeResult(r);
+        primaryRes = r;
+        analysis.setPrimaryResult(r);
         return r;
       })
       .catch((err) => {
-        analysis.setClaudeError(err.message);
+        analysis.setPrimaryError(err.message);
         return null;
       });
 
@@ -125,74 +128,80 @@ export default function AnalyzeTab() {
         return null;
       });
 
-    const [claude, gemini] = await Promise.all([claudePromise, geminiPromise]);
+    const [primary, gemini] = await Promise.all([primaryPromise, geminiPromise]);
+
+    const isComplete = !!(primary && gemini);
 
     // Synthesize if both succeeded
-    if (claude && gemini) {
+    if (primary && gemini) {
       analysis.setSynthesisLoading(true);
       try {
         const synthResult = await synthesize({
-          claude_result: claude,
+          primary_result: primary,
           gemini_result: gemini,
         });
         analysis.setSynthesisResult(synthResult);
 
-        // Save to history
         const entry: HistoryEntry = {
           id: historyId,
           query: historyQuery,
           timestamp: new Date().toISOString(),
           serving_description: analysis.servingDescription || undefined,
           image_thumbnail: historyThumbnail,
-          claude_result: claude,
+          input_mode: analysis.inputMode,
+          primary_result: primary,
           gemini_result: gemini,
           synthesis_result: synthResult,
           final_probability: synthResult.final_ibs_probability,
+          isComplete: true,
         };
         addHistory(entry);
       } catch (err) {
         analysis.setSynthesisError(
           err instanceof Error ? err.message : "Synthesis failed"
         );
-        // Still save with partial results
         const entry: HistoryEntry = {
           id: historyId,
           query: historyQuery,
           timestamp: new Date().toISOString(),
           image_thumbnail: historyThumbnail,
-          claude_result: claudeRes ?? undefined,
+          input_mode: analysis.inputMode,
+          primary_result: primaryRes ?? undefined,
           gemini_result: geminiRes ?? undefined,
           final_probability:
-            claude?.ibs_trigger_probability ??
+            primary?.ibs_trigger_probability ??
             gemini?.ibs_trigger_probability ??
             0,
+          isComplete: false,
         };
         addHistory(entry);
       }
     } else {
-      // Partial save
+      // Partial save — incomplete
       const entry: HistoryEntry = {
         id: historyId,
         query: historyQuery,
         timestamp: new Date().toISOString(),
         image_thumbnail: historyThumbnail,
-        claude_result: claudeRes ?? undefined,
+        input_mode: analysis.inputMode,
+        primary_result: primaryRes ?? undefined,
         gemini_result: geminiRes ?? undefined,
         final_probability:
-          claude?.ibs_trigger_probability ??
+          primary?.ibs_trigger_probability ??
           gemini?.ibs_trigger_probability ??
           0,
+        isComplete: false,
       };
       addHistory(entry);
     }
-  }, [analysis, profile, sources, addHistory]);
+  }, [analysis, profile, primaryProvider, sources, addHistory]);
 
   if (analysis.showResults) {
     return (
       <div>
         <button
           onClick={() => analysis.reset()}
-          className="mb-4 text-sm text-[#2D83A8] hover:underline cursor-pointer"
+          className="mb-4 text-sm text-[var(--color-gut-accent)] hover:underline cursor-pointer"
         >
           &larr; New Analysis
         </button>
@@ -243,7 +252,7 @@ export default function AnalyzeTab() {
           onChange={(e) => analysis.setQuery(e.target.value)}
           placeholder="Describe your food or meal, e.g. 'garlic bread with butter and parsley'"
           rows={4}
-          className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#2D83A8]/50 resize-none"
+          className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-gut-accent)]/50 resize-none"
         />
       )}
 
@@ -252,7 +261,7 @@ export default function AnalyzeTab() {
         <div
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
-          className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center hover:border-[#2D83A8] transition-colors"
+          className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center hover:border-[var(--color-gut-accent)] transition-colors"
         >
           {analysis.imagePreviewUrl ? (
             <div className="space-y-3">
@@ -263,7 +272,7 @@ export default function AnalyzeTab() {
               />
               <button
                 onClick={() => analysis.setImage(null, null)}
-                className="text-sm text-red-500 hover:underline cursor-pointer"
+                className="text-sm text-[var(--color-gut-red)] hover:underline cursor-pointer"
               >
                 Remove image
               </button>
@@ -272,7 +281,7 @@ export default function AnalyzeTab() {
                 onChange={(e) => analysis.setQuery(e.target.value)}
                 placeholder="Add a question about this food (optional)"
                 rows={2}
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#2D83A8]/50 resize-none"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-gut-accent)]/50 resize-none"
               />
             </div>
           ) : (
@@ -305,7 +314,7 @@ export default function AnalyzeTab() {
       <button
         disabled={!hasInput || analysis.isAnalyzing}
         onClick={runAnalysis}
-        className="mt-4 w-full py-3 rounded-xl bg-[#2D83A8] text-white font-medium text-sm hover:bg-[#256d8c] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 cursor-pointer"
+        className="mt-4 w-full py-3 rounded-xl bg-[var(--color-gut-accent)] text-white font-medium text-sm hover:bg-[var(--color-gut-accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 cursor-pointer"
       >
         {analysis.isAnalyzing ? (
           <>
@@ -313,7 +322,10 @@ export default function AnalyzeTab() {
             Analyzing...
           </>
         ) : (
-          "Analyze Food"
+          <>
+            <FlaskConical size={18} />
+            Analyze Food
+          </>
         )}
       </button>
 

@@ -22,10 +22,10 @@ export default function TabNavigation({ activeTab, onTabChange }: TabNavigationP
       {/* Desktop sidebar */}
       <nav className="hidden md:flex flex-col w-20 lg:w-56 min-h-screen bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shrink-0">
         <div className="px-4 py-6">
-          <h1 className="hidden lg:block text-xl font-bold text-[#2D83A8]">
+          <h1 className="hidden lg:block text-xl font-bold text-[var(--color-gut-accent)]">
             GutSense
           </h1>
-          <h1 className="lg:hidden text-center text-xl font-bold text-[#2D83A8]">
+          <h1 className="lg:hidden text-center text-xl font-bold text-[var(--color-gut-accent)]">
             GS
           </h1>
         </div>
@@ -39,7 +39,7 @@ export default function TabNavigation({ activeTab, onTabChange }: TabNavigationP
                 onClick={() => onTabChange(tab.id)}
                 className={`flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
                   isActive
-                    ? "bg-[#2D83A8]/10 text-[#2D83A8]"
+                    ? "bg-[var(--color-gut-accent)]/10 text-[var(--color-gut-accent)]"
                     : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
                 }`}
               >
@@ -63,7 +63,7 @@ export default function TabNavigation({ activeTab, onTabChange }: TabNavigationP
                 onClick={() => onTabChange(tab.id)}
                 className={`flex flex-col items-center gap-1 px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${
                   isActive
-                    ? "text-[#2D83A8]"
+                    ? "text-[var(--color-gut-accent)]"
                     : "text-gray-500 dark:text-gray-400"
                 }`}
               >

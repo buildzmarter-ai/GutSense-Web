@@ -41,12 +41,19 @@ class AnalysisRequest(BaseModel):
 
 
 class SynthesizeRequest(BaseModel):
-    claude_result: AgentResultDTO  # forward-ref resolved at end of file
+    primary_result: AgentResultDTO  # forward-ref resolved at end of file
     gemini_result: AgentResultDTO
     user_correction: str | None = Field(
         None,
         description="User correction/modification to apply, e.g. 'remove wheat flour, add rice flour instead'",
     )
+
+
+class FeedbackRequest(BaseModel):
+    analysis_type: str = Field(..., description="primary, gemini, or synthesis")
+    is_positive: bool
+    reason: str = ""
+    query: str | None = None
 
 
 # ── Response Models ─────────────────────────────────────────────────────────

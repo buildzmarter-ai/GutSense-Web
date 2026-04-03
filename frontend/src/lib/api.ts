@@ -1,4 +1,4 @@
-import { AgentResult, AnalysisRequest, SynthesisRequest, SynthesisResult } from "./types";
+import { AgentResult, AnalysisRequest, FeedbackRequest, SynthesisRequest, SynthesisResult } from "./types";
 
 function getBaseUrl(): string {
   if (typeof window !== "undefined") {
@@ -56,8 +56,17 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   return res.json();
 }
 
+// ── Analysis Endpoints ──────────────────────────────────────────────────────
+
 export async function analyzeClaude(request: AnalysisRequest): Promise<AgentResult> {
   return apiFetch<AgentResult>("/analyze/claude", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export async function analyzeOpenAI(request: AnalysisRequest): Promise<AgentResult> {
+  return apiFetch<AgentResult>("/analyze/openai", {
     method: "POST",
     body: JSON.stringify(request),
   });
@@ -81,17 +90,28 @@ export async function healthCheck(): Promise<{ status: string }> {
   return apiFetch<{ status: string }>("/health");
 }
 
-// ── Credential Management ─────────────────────────────────────────────────
+// ── Feedback ────────────────────────────────────────────────────────────────
+
+export async function submitFeedback(feedback: FeedbackRequest): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>("/feedback", {
+    method: "POST",
+    body: JSON.stringify(feedback),
+  });
+}
+
+// ── Credential Management ───────────────────────────────────────────────────
 
 export interface CredentialsStatus {
   anthropic_api_key: boolean;
   google_api_key: boolean;
+  openai_api_key: boolean;
   api_secret: boolean;
 }
 
 export interface CredentialUpdate {
   anthropic_api_key?: string;
   google_api_key?: string;
+  openai_api_key?: string;
   api_secret?: string;
 }
 
@@ -106,7 +126,11 @@ export async function updateCredentials(creds: CredentialUpdate): Promise<{ stat
   });
 }
 
-// ── Source Site Credentials ───────────────────────────────────────────────
+export async function validateCredential(provider: string): Promise<{ valid: boolean; message: string }> {
+  return apiFetch<{ valid: boolean; message: string }>(`/credentials/validate/${provider}`);
+}
+
+// ── Source Site Credentials ─────────────────────────────────────────────────
 
 export interface SourceSiteInfo {
   name: string;

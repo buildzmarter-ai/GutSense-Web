@@ -2,6 +2,13 @@
 
 @theme inline {
   --font-sans: var(--font-inter);
+
+  /* GutSense iOS-aligned color tokens */
+  --color-gut-green: #33c873;
+  --color-gut-amber: #f2a60a;
+  --color-gut-red: #e04040;
+  --color-gut-accent: #2D83A8;
+  --color-gut-accent-hover: #256d8c;
 }
 
 @layer base {
@@ -12,6 +19,13 @@
   .line-clamp-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }

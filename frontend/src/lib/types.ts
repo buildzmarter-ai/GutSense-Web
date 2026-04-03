@@ -5,7 +5,10 @@ export interface UserProfile {
   known_safe_foods: string[];
   medications: string[];
   diagnosed_conditions: string[];
+  sensitivities: string[];
 }
+
+export type PrimaryProvider = "anthropic" | "openai";
 
 export interface IngredientFODMAP {
   ingredient: string;
@@ -92,7 +95,7 @@ export interface UserSourceDTO {
 }
 
 export interface SynthesisRequest {
-  claude_result: AgentResult;
+  primary_result: AgentResult;
   gemini_result: AgentResult;
   user_correction?: string;
 }
@@ -112,8 +115,17 @@ export interface HistoryEntry {
   timestamp: string;
   serving_description?: string;
   image_thumbnail?: string;
-  claude_result?: AgentResult;
+  input_mode: "text" | "photo";
+  primary_result?: AgentResult;
   gemini_result?: AgentResult;
   synthesis_result?: SynthesisResult;
   final_probability: number;
+  isComplete: boolean;
+}
+
+export interface FeedbackRequest {
+  analysis_type: "primary" | "gemini" | "synthesis";
+  is_positive: boolean;
+  reason: string;
+  query?: string;
 }

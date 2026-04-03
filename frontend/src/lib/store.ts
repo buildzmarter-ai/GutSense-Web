@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import {
   AgentResult,
   HistoryEntry,
+  PrimaryProvider,
   SynthesisResult,
   UserProfile,
   UserSource,
@@ -12,9 +13,11 @@ import {
 interface SettingsState {
   backendUrl: string;
   apiSecret: string;
+  primaryProvider: PrimaryProvider;
   profile: UserProfile;
   setBackendUrl: (url: string) => void;
   setApiSecret: (secret: string) => void;
+  setPrimaryProvider: (provider: PrimaryProvider) => void;
   setProfile: (profile: Partial<UserProfile>) => void;
 }
 
@@ -23,6 +26,7 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       backendUrl: "http://localhost:8000",
       apiSecret: "",
+      primaryProvider: "anthropic",
       profile: {
         ibs_subtype: "IBS-D",
         fodmap_phase: "Elimination",
@@ -30,9 +34,11 @@ export const useSettingsStore = create<SettingsState>()(
         known_safe_foods: [],
         medications: [],
         diagnosed_conditions: [],
+        sensitivities: [],
       },
       setBackendUrl: (url) => set({ backendUrl: url }),
       setApiSecret: (secret) => set({ apiSecret: secret }),
+      setPrimaryProvider: (provider) => set({ primaryProvider: provider }),
       setProfile: (partial) =>
         set((state) => ({
           profile: { ...state.profile, ...partial },
@@ -53,13 +59,13 @@ interface AnalysisState {
   servingDescription: string;
   isAnalyzing: boolean;
   showResults: boolean;
-  claudeLoading: boolean;
+  primaryLoading: boolean;
   geminiLoading: boolean;
   synthesisLoading: boolean;
-  claudeResult: AgentResult | null;
+  primaryResult: AgentResult | null;
   geminiResult: AgentResult | null;
   synthesisResult: SynthesisResult | null;
-  claudeError: string | null;
+  primaryError: string | null;
   geminiError: string | null;
   synthesisError: string | null;
   setQuery: (query: string) => void;
@@ -69,13 +75,13 @@ interface AnalysisState {
   setServingGrams: (grams: number | null) => void;
   setServingDescription: (desc: string) => void;
   startAnalysis: () => void;
-  setClaudeResult: (result: AgentResult | null) => void;
+  setPrimaryResult: (result: AgentResult | null) => void;
   setGeminiResult: (result: AgentResult | null) => void;
   setSynthesisResult: (result: SynthesisResult | null) => void;
-  setClaudeError: (error: string | null) => void;
+  setPrimaryError: (error: string | null) => void;
   setGeminiError: (error: string | null) => void;
   setSynthesisError: (error: string | null) => void;
-  setClaudeLoading: (loading: boolean) => void;
+  setPrimaryLoading: (loading: boolean) => void;
   setGeminiLoading: (loading: boolean) => void;
   setSynthesisLoading: (loading: boolean) => void;
   setShowResults: (show: boolean) => void;
@@ -92,13 +98,13 @@ export const useAnalysisStore = create<AnalysisState>()((set) => ({
   servingDescription: "",
   isAnalyzing: false,
   showResults: false,
-  claudeLoading: false,
+  primaryLoading: false,
   geminiLoading: false,
   synthesisLoading: false,
-  claudeResult: null,
+  primaryResult: null,
   geminiResult: null,
   synthesisResult: null,
-  claudeError: null,
+  primaryError: null,
   geminiError: null,
   synthesisError: null,
   setQuery: (query) => set({ query }),
@@ -112,25 +118,25 @@ export const useAnalysisStore = create<AnalysisState>()((set) => ({
     set({
       isAnalyzing: true,
       showResults: true,
-      claudeLoading: true,
+      primaryLoading: true,
       geminiLoading: true,
       synthesisLoading: false,
-      claudeResult: null,
+      primaryResult: null,
       geminiResult: null,
       synthesisResult: null,
-      claudeError: null,
+      primaryError: null,
       geminiError: null,
       synthesisError: null,
     }),
-  setClaudeResult: (result) => set({ claudeResult: result, claudeLoading: false }),
+  setPrimaryResult: (result) => set({ primaryResult: result, primaryLoading: false }),
   setGeminiResult: (result) => set({ geminiResult: result, geminiLoading: false }),
   setSynthesisResult: (result) =>
     set({ synthesisResult: result, synthesisLoading: false }),
-  setClaudeError: (error) => set({ claudeError: error, claudeLoading: false }),
+  setPrimaryError: (error) => set({ primaryError: error, primaryLoading: false }),
   setGeminiError: (error) => set({ geminiError: error, geminiLoading: false }),
   setSynthesisError: (error) =>
     set({ synthesisError: error, synthesisLoading: false }),
-  setClaudeLoading: (loading) => set({ claudeLoading: loading }),
+  setPrimaryLoading: (loading) => set({ primaryLoading: loading }),
   setGeminiLoading: (loading) => set({ geminiLoading: loading }),
   setSynthesisLoading: (loading) => set({ synthesisLoading: loading }),
   setShowResults: (show) => set({ showResults: show }),
@@ -144,13 +150,13 @@ export const useAnalysisStore = create<AnalysisState>()((set) => ({
       servingDescription: "",
       isAnalyzing: false,
       showResults: false,
-      claudeLoading: false,
+      primaryLoading: false,
       geminiLoading: false,
       synthesisLoading: false,
-      claudeResult: null,
+      primaryResult: null,
       geminiResult: null,
       synthesisResult: null,
-      claudeError: null,
+      primaryError: null,
       geminiError: null,
       synthesisError: null,
     }),
@@ -159,24 +165,62 @@ export const useAnalysisStore = create<AnalysisState>()((set) => ({
 // History Store
 interface HistoryState {
   entries: HistoryEntry[];
+  selectedIds: Set<string>;
   addEntry: (entry: HistoryEntry) => void;
+  updateEntry: (id: string, partial: Partial<HistoryEntry>) => void;
   removeEntry: (id: string) => void;
+  removeEntries: (ids: string[]) => void;
   clearAll: () => void;
+  toggleSelect: (id: string) => void;
+  selectAll: () => void;
+  clearSelection: () => void;
 }
 
 export const useHistoryStore = create<HistoryState>()(
   persist(
     (set) => ({
       entries: [],
+      selectedIds: new Set<string>(),
       addEntry: (entry) =>
         set((state) => ({ entries: [entry, ...state.entries] })),
+      updateEntry: (id, partial) =>
+        set((state) => ({
+          entries: state.entries.map((e) =>
+            e.id === id ? { ...e, ...partial } : e
+          ),
+        })),
       removeEntry: (id) =>
         set((state) => ({
           entries: state.entries.filter((e) => e.id !== id),
+          selectedIds: (() => {
+            const next = new Set(state.selectedIds);
+            next.delete(id);
+            return next;
+          })(),
         })),
-      clearAll: () => set({ entries: [] }),
+      removeEntries: (ids) =>
+        set((state) => ({
+          entries: state.entries.filter((e) => !ids.includes(e.id)),
+          selectedIds: new Set<string>(),
+        })),
+      clearAll: () => set({ entries: [], selectedIds: new Set<string>() }),
+      toggleSelect: (id) =>
+        set((state) => {
+          const next = new Set(state.selectedIds);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return { selectedIds: next };
+        }),
+      selectAll: () =>
+        set((state) => ({
+          selectedIds: new Set(state.entries.map((e) => e.id)),
+        })),
+      clearSelection: () => set({ selectedIds: new Set<string>() }),
     }),
-    { name: "gutsense-history" }
+    {
+      name: "gutsense-history",
+      partialize: (state) => ({ entries: state.entries }),
+    }
   )
 );
 

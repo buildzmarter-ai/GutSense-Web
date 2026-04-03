@@ -1,4 +1,4 @@
-"""GutSense Web API -- FODMAP analysis powered by Claude + Gemini."""
+"""GutSense Web API -- FODMAP analysis powered by Claude + Gemini + OpenAI."""
 
 from __future__ import annotations
 
@@ -13,11 +13,20 @@ from pydantic import BaseModel
 
 load_dotenv()  # Load .env file if present (local dev)
 
-from agents import analyze_with_claude, analyze_with_gemini, synthesize_results
+from agents import (
+    analyze_with_claude,
+    analyze_with_gemini,
+    analyze_with_openai,
+    synthesize_results,
+    validate_anthropic_key,
+    validate_google_key,
+    validate_openai_key,
+)
 from keychain_service import (
     ANTHROPIC_KEY,
     API_SECRET,
     GOOGLE_KEY,
+    OPENAI_KEY,
     delete_credential,
     delete_source_credential,
     get_credentials_status,
@@ -30,6 +39,7 @@ from keychain_service import (
 from models import (
     AgentResultDTO,
     AnalysisRequest,
+    FeedbackRequest,
     SynthesisResultDTO,
     SynthesizeRequest,
 )
@@ -39,8 +49,8 @@ logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(
     title="GutSense API",
-    version="1.0.0",
-    description="FODMAP food analysis using Claude and Gemini AI agents",
+    version="2.0.0",
+    description="FODMAP food analysis using Claude, Gemini, and OpenAI AI agents",
 )
 
 # ── CORS ────────────────────────────────────────────────────────────────────
@@ -91,6 +101,7 @@ async def verify_token(
 class CredentialUpdate(BaseModel):
     anthropic_api_key: str | None = None
     google_api_key: str | None = None
+    openai_api_key: str | None = None
     api_secret: str | None = None
 
 
@@ -120,6 +131,14 @@ async def update_credentials(creds: CredentialUpdate) -> dict[str, str]:
             delete_credential(GOOGLE_KEY)
             updated.append("google_api_key (removed)")
 
+    if creds.openai_api_key is not None:
+        if creds.openai_api_key:
+            store_credential(OPENAI_KEY, creds.openai_api_key)
+            updated.append("openai_api_key")
+        else:
+            delete_credential(OPENAI_KEY)
+            updated.append("openai_api_key (removed)")
+
     if creds.api_secret is not None:
         if creds.api_secret:
             store_credential(API_SECRET, creds.api_secret)
@@ -129,6 +148,34 @@ async def update_credentials(creds: CredentialUpdate) -> dict[str, str]:
             updated.append("api_secret (removed)")
 
     return {"status": "ok", "updated": ", ".join(updated) if updated else "none"}
+
+
+@app.get("/credentials/validate/{provider}")
+async def validate_credential(provider: str) -> dict[str, object]:
+    """Validate an API key by making a minimal request to the provider."""
+    if provider == "anthropic":
+        api_key = read_credential(ANTHROPIC_KEY)
+        if not api_key:
+            return {"valid": False, "message": "Anthropic API key not configured"}
+        valid, msg = await validate_anthropic_key(api_key)
+        return {"valid": valid, "message": msg}
+    elif provider == "google":
+        api_key = read_credential(GOOGLE_KEY)
+        if not api_key:
+            return {"valid": False, "message": "Google API key not configured"}
+        valid, msg = await validate_google_key(api_key)
+        return {"valid": valid, "message": msg}
+    elif provider == "openai":
+        api_key = read_credential(OPENAI_KEY)
+        if not api_key:
+            return {"valid": False, "message": "OpenAI API key not configured"}
+        valid, msg = await validate_openai_key(api_key)
+        return {"valid": valid, "message": msg}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown provider: {provider}",
+        )
 
 
 # ── Source Site Credentials ────────────────────────────────────────────────
@@ -203,6 +250,27 @@ async def analyze_claude(
         ) from exc
 
 
+@app.post("/analyze/openai", response_model=AgentResultDTO)
+async def analyze_openai_endpoint(
+    req: AnalysisRequest,
+    _auth: None = Depends(verify_token),
+) -> AgentResultDTO:
+    api_key = read_credential(OPENAI_KEY)
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OpenAI API key not configured. Go to Settings to add it.",
+        )
+    try:
+        return await analyze_with_openai(req, api_key)
+    except Exception as exc:
+        logger.exception("OpenAI analysis failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"OpenAI analysis error: {exc}",
+        ) from exc
+
+
 @app.post("/analyze/gemini")
 async def analyze_gemini(
     req: AnalysisRequest,
@@ -225,20 +293,30 @@ async def analyze_gemini(
 
 
 @app.post("/synthesize", response_model=SynthesisResultDTO)
-async def synthesize(
+async def synthesize_endpoint(
     req: SynthesizeRequest,
     _auth: None = Depends(verify_token),
 ) -> SynthesisResultDTO:
-    api_key = read_credential(ANTHROPIC_KEY)
-    if not api_key:
+    # Prefer OpenAI for synthesis; fall back to Claude if OpenAI key not available
+    openai_key = read_credential(OPENAI_KEY)
+    anthropic_key = read_credential(ANTHROPIC_KEY)
+
+    if openai_key:
+        api_key = openai_key
+        synthesizer = "openai"
+    elif anthropic_key:
+        api_key = anthropic_key
+        synthesizer = "claude"
+    else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Anthropic API key not configured. Go to Settings to add it.",
+            detail="Neither OpenAI nor Anthropic API key configured. Go to Settings to add one.",
         )
     try:
         return await synthesize_results(
-            req.claude_result, req.gemini_result, api_key,
+            req.primary_result, req.gemini_result, api_key,
             user_correction=req.user_correction,
+            synthesizer=synthesizer,
         )
     except Exception as exc:
         logger.exception("Synthesis failed")
@@ -246,3 +324,20 @@ async def synthesize(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Synthesis error: {exc}",
         ) from exc
+
+
+# ── Feedback ────────────────────────────────────────────────────────────────
+
+
+@app.post("/feedback")
+async def submit_feedback(req: FeedbackRequest) -> dict[str, str]:
+    """Accept anonymous feedback. No PII is collected."""
+    logger.info(
+        "Feedback: type=%s positive=%s reason=%s query=%s",
+        req.analysis_type,
+        req.is_positive,
+        req.reason,
+        req.query or "(none)",
+    )
+    # For now, just log it. Could be extended to write to a database.
+    return {"status": "ok"}

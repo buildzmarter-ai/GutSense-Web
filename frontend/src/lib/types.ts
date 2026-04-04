@@ -129,3 +129,62 @@ export interface FeedbackRequest {
   reason: string;
   query?: string;
 }
+
+/* ── Ingredient Simulation Types ─────────────────────────────────────── */
+
+/** Which agent(s) originally detected this ingredient */
+export type IngredientProvenance = "claude" | "gemini" | "openai" | "both" | "user";
+
+/** A single ingredient in the simulation model */
+export interface SimulationIngredient {
+  id: string;
+  ingredient: string;
+  tier: "low" | "moderate" | "high";
+  fructan_g: number;
+  gos_g: number;
+  lactose_g: number;
+  fructose_g: number;
+  polyol_g: number;
+  serving_size_g: number;
+  source: string;
+  provenance: IngredientProvenance;
+  included: boolean;
+}
+
+/** Risk tier classification matching iOS semantics */
+export type RiskTier = "low" | "moderate" | "high";
+
+/** Deterministic risk calculation result */
+export interface SimulationRiskResult {
+  totalFructan: number;
+  totalGos: number;
+  totalLactose: number;
+  totalFructose: number;
+  totalPolyol: number;
+  totalFodmapLoad: number;
+  estimatedProbability: number;
+  riskTier: RiskTier;
+  delta: number; // difference from baseline
+  includedCount: number;
+  excludedCount: number;
+}
+
+/** Payload sent to backend for re-synthesis with edited ingredients */
+export interface ResynthesisRequest {
+  original_query: string;
+  edited_ingredients: SimulationIngredient[];
+  primary_result: AgentResult;
+  gemini_result: AgentResult;
+  user_profile: UserProfile;
+}
+
+/** Backend response for simulation re-synthesis */
+export interface ResynthesisResult {
+  reconciled_tiers: IngredientFODMAP[];
+  final_ibs_probability: number;
+  confidence_band: number;
+  synthesis_rationale: string;
+  key_disagreements: string[];
+  safety_flags: SafetyFlag[];
+  enzyme_recommendation: EnzymeRecommendation | null;
+}

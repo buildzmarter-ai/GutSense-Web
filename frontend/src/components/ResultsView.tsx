@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   AlertTriangle,
   Info,
@@ -27,6 +27,9 @@ import {
   EnzymeRecommendation,
 } from "@/lib/types";
 import FeedbackModal from "./FeedbackModal";
+import IngredientSimulationPanel from "./results/IngredientSimulationPanel";
+import { useSimulationStore } from "@/lib/simulation/useSimulationStore";
+import { deriveSimulationIngredients } from "@/lib/simulation/deriveIngredientProvenance";
 
 /* ── Color utilities (iOS-aligned tokens) ─────────────────────────────── */
 
@@ -376,6 +379,22 @@ export default function ResultsView() {
   const [resynthLoading, setResynthLoading] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
 
+  // ── Initialize simulation store when both agent results arrive ──
+  const initSimulation = useSimulationStore((s) => s.initialize);
+  const simInitRef = useRef(false);
+
+  useEffect(() => {
+    if (primaryResult && geminiResult && synthesisResult && !simInitRef.current) {
+      const simIngredients = deriveSimulationIngredients(primaryResult, geminiResult);
+      initSimulation(simIngredients, synthesisResult.final_ibs_probability);
+      simInitRef.current = true;
+    }
+    // Reset the ref when a new analysis starts
+    if (!primaryResult && !geminiResult) {
+      simInitRef.current = false;
+    }
+  }, [primaryResult, geminiResult, synthesisResult, initSimulation]);
+
   const primaryLabel = primaryProvider === "openai" ? "OpenAI Analysis" : "Claude Analysis";
   const primaryIcon = primaryProvider === "openai"
     ? <Zap size={18} className="text-green-500" />
@@ -427,6 +446,11 @@ export default function ResultsView() {
           onResynthesize={handleResynthesize}
           resynthLoading={resynthLoading}
         />
+      </div>
+
+      {/* Ingredient Simulation — below synthesis, above agent detail */}
+      <div className="mb-4">
+        <IngredientSimulationPanel />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

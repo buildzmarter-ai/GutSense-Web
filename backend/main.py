@@ -40,6 +40,9 @@ from models import (
     AgentResultDTO,
     AnalysisRequest,
     FeedbackRequest,
+    IngredientFODMAPDTO,
+    ResynthesisRequest,
+    ResynthesisResultDTO,
     SynthesisResultDTO,
     SynthesizeRequest,
 )
@@ -336,6 +339,93 @@ async def synthesize_endpoint(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Synthesis error: {exc}",
+        ) from exc
+
+
+# ── Simulation Re-synthesis ────────────────────────────────────────────────
+
+
+@app.post("/simulate/resynthesize", response_model=ResynthesisResultDTO)
+async def simulate_resynthesize(
+    req: ResynthesisRequest,
+    _auth: None = Depends(verify_token),
+) -> ResynthesisResultDTO:
+    """Re-synthesize analysis results using the user's edited ingredient list.
+
+    Takes the edited ingredients (included only), merges them back into
+    the original agent results, and runs a fresh synthesis pass.
+    """
+    openai_key = read_credential(OPENAI_KEY)
+    anthropic_key = read_credential(ANTHROPIC_KEY)
+
+    if openai_key:
+        api_key = openai_key
+        synthesizer = "openai"
+    elif anthropic_key:
+        api_key = anthropic_key
+        synthesizer = "claude"
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Neither OpenAI nor Anthropic API key configured.",
+        )
+
+    # Build a modified primary result with the user's edited ingredient list
+    edited_tiers = [
+        IngredientFODMAPDTO(
+            ingredient=ing.ingredient,
+            tier=ing.tier,
+            fructan_g=ing.fructan_g,
+            gos_g=ing.gos_g,
+            lactose_g=ing.lactose_g,
+            fructose_g=ing.fructose_g,
+            polyol_g=ing.polyol_g,
+            serving_size_g=ing.serving_size_g,
+            source=ing.source,
+        )
+        for ing in req.edited_ingredients
+    ]
+
+    # Override the primary result's FODMAP tiers with the edited list
+    modified_primary = req.primary_result.model_copy(
+        update={"fodmap_tiers": edited_tiers}
+    )
+
+    # Build a user correction string summarizing the edits
+    original_names = {t.ingredient.lower() for t in req.primary_result.fodmap_tiers}
+    edited_names = {ing.ingredient.lower() for ing in req.edited_ingredients}
+    removed = original_names - edited_names
+    added = edited_names - original_names
+
+    correction_parts = []
+    if removed:
+        correction_parts.append(f"Removed: {', '.join(sorted(removed))}")
+    if added:
+        correction_parts.append(f"Added: {', '.join(sorted(added))}")
+    user_correction = "; ".join(correction_parts) if correction_parts else "Ingredient list modified by user"
+
+    try:
+        synthesis = await synthesize_results(
+            modified_primary,
+            req.gemini_result,
+            api_key,
+            user_correction=user_correction,
+            synthesizer=synthesizer,
+        )
+        return ResynthesisResultDTO(
+            reconciled_tiers=synthesis.reconciled_tiers,
+            final_ibs_probability=synthesis.final_ibs_probability,
+            confidence_band=synthesis.confidence_band,
+            synthesis_rationale=synthesis.synthesis_rationale,
+            key_disagreements=synthesis.key_disagreements,
+            safety_flags=synthesis.safety_flags,
+            enzyme_recommendation=synthesis.enzyme_recommendation,
+        )
+    except Exception as exc:
+        logger.exception("Simulation re-synthesis failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Re-synthesis error: {exc}",
         ) from exc
 
 

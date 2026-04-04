@@ -131,5 +131,42 @@ class SynthesisResultDTO(BaseModel):
     safety_flags: list[SafetyFlagDTO] = Field(default_factory=list)
 
 
+# ── Simulation Models ──────────────────────────────────────────────────────
+
+
+class SimulationIngredientDTO(BaseModel):
+    id: str
+    ingredient: str
+    tier: str = Field(..., description="low, moderate, or high")
+    fructan_g: float = 0.0
+    gos_g: float = 0.0
+    lactose_g: float = 0.0
+    fructose_g: float = 0.0
+    polyol_g: float = 0.0
+    serving_size_g: float = 0.0
+    source: str = ""
+    provenance: str = Field(..., description="claude, openai, gemini, both, or user")
+    included: bool = True
+
+
+class ResynthesisRequest(BaseModel):
+    original_query: str
+    edited_ingredients: list[SimulationIngredientDTO] = Field(default_factory=list)
+    primary_result: AgentResultDTO
+    gemini_result: AgentResultDTO
+    user_profile: UserProfileDTO
+
+
+class ResynthesisResultDTO(BaseModel):
+    reconciled_tiers: list[IngredientFODMAPDTO] = Field(default_factory=list)
+    final_ibs_probability: float = 0.0
+    confidence_band: float = 0.0
+    synthesis_rationale: str = ""
+    key_disagreements: list[str] = Field(default_factory=list)
+    safety_flags: list[SafetyFlagDTO] = Field(default_factory=list)
+    enzyme_recommendation: EnzymeRecommendationDTO | None = None
+
+
 # Resolve forward references
 SynthesizeRequest.model_rebuild()
+ResynthesisRequest.model_rebuild()

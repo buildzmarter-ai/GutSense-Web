@@ -1,4 +1,4 @@
-import { AgentResult, AnalysisRequest, FeedbackRequest, SynthesisRequest, SynthesisResult } from "./types";
+import { AgentResult, AnalysisRequest, FeedbackRequest, ResynthesisRequest, ResynthesisResult, SynthesisRequest, SynthesisResult } from "./types";
 
 function getBaseUrl(): string {
   if (typeof window !== "undefined") {
@@ -88,6 +88,15 @@ export async function synthesize(request: SynthesisRequest): Promise<SynthesisRe
 
 export async function healthCheck(): Promise<{ status: string }> {
   return apiFetch<{ status: string }>("/health");
+}
+
+// ── Simulation Re-synthesis ────────────────────────────────────────────────
+
+export async function resynthesizeSimulation(request: ResynthesisRequest): Promise<ResynthesisResult> {
+  return apiFetch<ResynthesisResult>("/simulate/resynthesize", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
 }
 
 // ── Feedback ────────────────────────────────────────────────────────────────

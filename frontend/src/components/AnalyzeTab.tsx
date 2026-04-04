@@ -8,6 +8,7 @@ import { AnalysisRequest, HistoryEntry, UserSourceDTO } from "@/lib/types";
 import ServingSelector from "./ServingSelector";
 import ExampleQueries from "./ExampleQueries";
 import ResultsView from "./ResultsView";
+import { sendTelemetry } from "@/lib/telemetry";
 
 /** Compress a data URL to a small JPEG thumbnail (max 120px) for localStorage */
 function createThumbnail(dataUrl: string): Promise<string> {
@@ -67,6 +68,22 @@ export default function AnalyzeTab() {
   );
 
   const runAnalysis = useCallback(async () => {
+    sendTelemetry({
+      app: "gutsense-web",
+      lane: "gut-health",
+      eventType: "food_analysis_started",
+      route: "/",
+      metadata: {
+        provider: primaryProvider,
+        input_mode: analysis.inputMode,
+        has_image: analysis.imageBase64 !== null,
+        has_query: analysis.query.trim().length > 0,
+        serving_fraction: analysis.servingFraction,
+        serving_grams: analysis.servingGrams ?? null,
+        has_user_sources: sources.length > 0,
+      },
+    });
+
     analysis.startAnalysis();
 
     const userSourceDTOs: UserSourceDTO[] | undefined =
@@ -142,6 +159,20 @@ export default function AnalyzeTab() {
         });
         analysis.setSynthesisResult(synthResult);
 
+        sendTelemetry({
+          app: "gutsense-web",
+          lane: "gut-health",
+          eventType: "food_analysis_completed",
+          route: "/",
+          metadata: {
+            provider: primaryProvider,
+            input_mode: analysis.inputMode,
+            result_type: "success",
+            synthesis: true,
+            final_probability: synthResult.final_ibs_probability,
+          },
+        });
+
         const entry: HistoryEntry = {
           id: historyId,
           query: historyQuery,
@@ -160,6 +191,22 @@ export default function AnalyzeTab() {
         analysis.setSynthesisError(
           err instanceof Error ? err.message : "Synthesis failed"
         );
+
+        sendTelemetry({
+          app: "gutsense-web",
+          lane: "gut-health",
+          eventType: "food_analysis_completed",
+          route: "/",
+          metadata: {
+            provider: primaryProvider,
+            input_mode: analysis.inputMode,
+            result_type: "partial_success",
+            synthesis: false,
+            primary_ok: !!primaryRes,
+            gemini_ok: !!geminiRes,
+          },
+        });
+
         const entry: HistoryEntry = {
           id: historyId,
           query: historyQuery,
@@ -177,6 +224,21 @@ export default function AnalyzeTab() {
         addHistory(entry);
       }
     } else {
+      sendTelemetry({
+        app: "gutsense-web",
+        lane: "gut-health",
+        eventType: "food_analysis_completed",
+        route: "/",
+        metadata: {
+          provider: primaryProvider,
+          input_mode: analysis.inputMode,
+          result_type: "incomplete",
+          primary_ok: !!primaryRes,
+          gemini_ok: !!geminiRes,
+          is_complete: isComplete,
+        },
+      });
+
       // Partial save — incomplete
       const entry: HistoryEntry = {
         id: historyId,

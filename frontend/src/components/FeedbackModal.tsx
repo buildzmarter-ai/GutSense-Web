@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X, ThumbsUp, ThumbsDown, Send, Loader2 } from "lucide-react";
 import { submitFeedback } from "@/lib/api";
+import { sendTelemetry } from "@/lib/telemetry";
 
 interface FeedbackModalProps {
   query?: string;
@@ -31,7 +32,7 @@ export default function FeedbackModal({ query, onClose }: FeedbackModalProps) {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  const handleSubmit = async () => {
+    const handleSubmit = async () => {
     if (isPositive === null) return;
     setSubmitting(true);
     try {
@@ -41,6 +42,20 @@ export default function FeedbackModal({ query, onClose }: FeedbackModalProps) {
         reason,
         query,
       });
+
+      sendTelemetry({
+        app: "gutsense-web",
+        lane: "gut-health",
+        eventType: "feedback_submitted",
+        metadata: {
+          analysis_type: analysisType,
+          sentiment: isPositive ? "positive" : "negative",
+          reason: reason || "",
+          has_query: !!query,
+          has_reason: !!reason.trim(),
+        },
+      });
+
       setSubmitted(true);
       setTimeout(onClose, 1500);
     } catch {

@@ -31,9 +31,11 @@ export default function IngredientSimulationPanel() {
 
   const handleResynthesize = useCallback(async () => {
     if (!primaryResult || !geminiResult || !userProfile) return;
+
     setResynthLoading(true);
     setResynthError(null);
     setShowResynthResult(false);
+
     try {
       const payload = buildResynthesisPayload(
         query,
@@ -42,15 +44,28 @@ export default function IngredientSimulationPanel() {
         geminiResult,
         userProfile,
       );
+
       const result = await resynthesizeSimulation(payload);
       setResynthResult(result);
       setShowResynthResult(true);
-    } finally { setResynthLoading(false); } catch (err) {
+
+      // Make the updated synthesis output visible even if the user is at the bottom.
+      const el = document.getElementById("gutsense-synthesis");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
       setResynthError(err instanceof Error ? err.message : "Re-synthesis failed");
+    } finally {
+      setResynthLoading(false);
     }
   }, [
-    query, ingredients, primaryResult, geminiResult, userProfile,
-    setResynthLoading, setResynthResult, setResynthError,
+    query,
+    ingredients,
+    primaryResult,
+    geminiResult,
+    userProfile,
+    setResynthLoading,
+    setResynthResult,
+    setResynthError,
   ]);
 
   if (!risk) return null;
@@ -67,12 +82,17 @@ export default function IngredientSimulationPanel() {
           Ingredient Simulation
         </span>
         {isDirty && (
-          <span className="ml-1 w-2 h-2 rounded-full bg-[var(--color-gut-amber)]" title="Unsaved changes" />
+          <span
+            className="ml-1 w-2 h-2 rounded-full bg-[var(--color-gut-amber)]"
+            title="Unsaved changes"
+          />
         )}
         <span className="ml-auto">
-          {isOpen
-            ? <ChevronUp size={16} className="text-gray-400" />
-            : <ChevronDown size={16} className="text-gray-400" />}
+          {isOpen ? (
+            <ChevronUp size={16} className="text-gray-400" />
+          ) : (
+            <ChevronDown size={16} className="text-gray-400" />
+          )}
         </span>
       </button>
 
@@ -121,7 +141,10 @@ export default function IngredientSimulationPanel() {
               </h4>
 
               <div className="flex items-center gap-3">
-                <span className="text-2xl font-bold" style={{ color: probabilityColor(resynthResult.final_ibs_probability) }}>
+                <span
+                  className="text-2xl font-bold"
+                  style={{ color: probabilityColor(resynthResult.final_ibs_probability) }}
+                >
                   {Math.round(resynthResult.final_ibs_probability * 100)}%
                 </span>
                 <span className="text-xs text-gray-400">

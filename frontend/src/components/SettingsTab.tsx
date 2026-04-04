@@ -12,6 +12,7 @@ import {
   getSourcesStatus, updateSourceCredential, removeSourceCredential,
   CredentialsStatus, SourceSiteInfo,
 } from "@/lib/api";
+import { sendTelemetry } from "@/lib/telemetry";
 
 const IBS_SUBTYPES = ["IBS-D", "IBS-C", "IBS-M", "IBS-U"];
 const FODMAP_PHASES = ["Elimination", "Reintroduction", "Maintenance"];
@@ -158,8 +159,42 @@ export default function SettingsTab() {
           </div>
         </div>
       </section>
-
       {/* Primary Provider */}
+      <section className="mb-8">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-3">
+          <span className="flex items-center gap-2"><Zap size={14} />Primary Provider</span>
+        </h3>
+        <div className="p-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 space-y-3">
+          {PROVIDER_OPTIONS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => {
+                setPrimaryProvider(p.id);
+                sendTelemetry({
+                  app: "gutsense-web",
+                  lane: "gut-health",
+                  eventType: "provider_selected",
+                  metadata: {
+                    provider: p.id,
+                    label: p.label,
+                    source: "settings_tab",
+                  },
+                });
+              }}
+              className={`w-full flex items-center gap-3 p-3 rounded-xl text-left transition-colors cursor-pointer ${primaryProvider === p.id ? "bg-[var(--color-gut-accent)]/10 border border-[var(--color-gut-accent)]/30" : "bg-gray-50 dark:bg-gray-800 border border-transparent hover:bg-gray-100 dark:hover:bg-gray-700"}`}
+            >
+              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${primaryProvider === p.id ? "border-[var(--color-gut-accent)]" : "border-gray-300 dark:border-gray-600"}`}>
+                {primaryProvider === p.id && <div className="w-2 h-2 rounded-full bg-[var(--color-gut-accent)]" />}
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-900 dark:text-white">{p.label}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{p.description}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section className="mb-8">
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-3">
           <span className="flex items-center gap-2"><Zap size={14} />Primary Provider</span>

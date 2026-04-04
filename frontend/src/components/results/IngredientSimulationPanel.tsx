@@ -45,7 +45,7 @@ export default function IngredientSimulationPanel() {
       const result = await resynthesizeSimulation(payload);
       setResynthResult(result);
       setShowResynthResult(true);
-    } catch (err) {
+    } finally { setResynthLoading(false); } catch (err) {
       setResynthError(err instanceof Error ? err.message : "Re-synthesis failed");
     }
   }, [
